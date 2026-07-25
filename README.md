@@ -135,4 +135,6 @@ deno run --node-modules-dir=none -A npm:esbuild@0.25.0 src/main.ts --bundle --ex
   entirely for hidden tabs and while a block is being edited; the repair
   interval only does a cheap DOM existence check per visible pane.
 
-MIT licensed.
+## License
+
+MIT — see [LICENSE](LICENSE).
