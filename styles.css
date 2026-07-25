@@ -13,9 +13,12 @@
 	flex-grow: 0;
 }
 
+/* NOTE: never override min-height here. Reading view virtualizes long notes
+   and maintains the sizer's min-height inline to keep scroll geometry stable;
+   fighting it collapses the scroll height mid-scroll and triggers a
+   re-measure loop that can hang or crash the renderer on long notes. */
 .markdown-preview-sizer:has(> .logseq-backlinks:not(:empty)) {
 	padding-bottom: 1em !important;
-	min-height: unset !important;
 }
 
 .logseq-backlinks {

@@ -136,12 +136,24 @@ export default class LogseqBacklinksPlugin extends Plugin {
 	private rendering = new WeakSet<MarkdownView>();
 	private renderAgain = new WeakSet<MarkdownView>();
 	private refresh = debounce(() => this.updateAllViews(), 150, true);
+	/** Bumped on any vault change; invalidates cached unlinked results. */
+	private vaultRev = 0;
+	private unlinkedCache = new Map<string, { rev: number; groups: RefGroup[] }>();
 
 	settings: LogseqBacklinksSettings = { ...DEFAULT_SETTINGS };
 
 	async onload() {
 		this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
 		this.addSettingTab(new LogseqBacklinksSettingTab(this));
+
+		const bumpRev = () => {
+			this.vaultRev++;
+			this.unlinkedCache.clear();
+		};
+		this.registerEvent(this.app.vault.on("modify", bumpRev));
+		this.registerEvent(this.app.vault.on("create", bumpRev));
+		this.registerEvent(this.app.vault.on("delete", bumpRev));
+		this.registerEvent(this.app.vault.on("rename", bumpRev));
 
 		this.registerEvent(this.app.workspace.on("file-open", () => this.refresh()));
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.refresh()));
@@ -298,7 +310,22 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		}
 		this.renderSection(root, view, state, {
 			title: "Unlinked References",
-			lazyLoad: () => this.collectUnlinkedReferences(file, linkedRanges),
+			// Results are cached until the vault changes: the repair interval
+			// re-inserts our section whenever Obsidian's reading view drops it
+			// (which happens routinely while scrolling), and re-running a
+			// whole-vault scan on each re-insert would pile up on large vaults.
+			lazyLoad: async (isCancelled) => {
+				const cached = this.unlinkedCache.get(file.path);
+				if (cached && cached.rev === this.vaultRev) return cached.groups;
+				const rev = this.vaultRev;
+				const groups = await this.collectUnlinkedReferences(
+					file,
+					linkedRanges,
+					isCancelled
+				);
+				if (groups) this.unlinkedCache.set(file.path, { rev, groups });
+				return groups;
+			},
 			collapsed: state.unlinkedCollapsed,
 			setCollapsed: (c) => (state.unlinkedCollapsed = c),
 			highlight: file.basename,
@@ -312,7 +339,7 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		opts: {
 			title: string;
 			groups?: RefGroup[];
-			lazyLoad?: () => Promise<RefGroup[]>;
+			lazyLoad?: (isCancelled: () => boolean) => Promise<RefGroup[] | null>;
 			collapsed: boolean;
 			setCollapsed: (c: boolean) => void;
 			highlight: string | null;
@@ -334,7 +361,10 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		const ensureLoaded = async () => {
 			if (loaded) return;
 			loaded = true;
-			const groups = await opts.lazyLoad!();
+			const groups = await opts.lazyLoad!(() => !body.isConnected);
+			// null = cancelled because this section was torn down mid-scan;
+			// a detached body means the result has nowhere to go either way.
+			if (!groups || !body.isConnected) return;
 			if (groups.length === 0) {
 				body.createDiv({
 					cls: "logseq-backlinks-empty",
@@ -657,8 +687,9 @@ export default class LogseqBacklinksPlugin extends Plugin {
 
 	private async collectUnlinkedReferences(
 		target: TFile,
-		linkedRanges: Map<string, Array<[number, number]>>
-	): Promise<RefGroup[]> {
+		linkedRanges: Map<string, Array<[number, number]>>,
+		isCancelled: () => boolean
+	): Promise<RefGroup[] | null> {
 		const name = target.basename;
 		if (name.length < 2) return [];
 		const re = new RegExp(
@@ -673,9 +704,11 @@ export default class LogseqBacklinksPlugin extends Plugin {
 			if (source.path === target.path) continue;
 			if (groups.length >= 50) break;
 			// The scan covers the whole vault; yield to the UI periodically so
-			// a very large vault never blocks the main thread for long.
+			// a very large vault never blocks the main thread for long, and
+			// abort outright if the section being filled was torn down.
 			if (++scanned % 250 === 0) {
 				await new Promise<void>((resolve) => setTimeout(resolve, 0));
+				if (isCancelled()) return null;
 			}
 			const content = await this.app.vault.cachedRead(source);
 			if (!re.test(content)) continue;

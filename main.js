@@ -169,11 +169,22 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     this.rendering = /* @__PURE__ */ new WeakSet();
     this.renderAgain = /* @__PURE__ */ new WeakSet();
     this.refresh = (0, import_obsidian.debounce)(() => this.updateAllViews(), 150, true);
+    /** Bumped on any vault change; invalidates cached unlinked results. */
+    this.vaultRev = 0;
+    this.unlinkedCache = /* @__PURE__ */ new Map();
     this.settings = { ...DEFAULT_SETTINGS };
   }
   async onload() {
     this.settings = { ...DEFAULT_SETTINGS, ...await this.loadData() };
     this.addSettingTab(new LogseqBacklinksSettingTab(this));
+    const bumpRev = () => {
+      this.vaultRev++;
+      this.unlinkedCache.clear();
+    };
+    this.registerEvent(this.app.vault.on("modify", bumpRev));
+    this.registerEvent(this.app.vault.on("create", bumpRev));
+    this.registerEvent(this.app.vault.on("delete", bumpRev));
+    this.registerEvent(this.app.vault.on("rename", bumpRev));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refresh()));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.refresh()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refresh()));
@@ -269,7 +280,22 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     }
     this.renderSection(root, view, state, {
       title: "Unlinked References",
-      lazyLoad: () => this.collectUnlinkedReferences(file, linkedRanges),
+      // Results are cached until the vault changes: the repair interval
+      // re-inserts our section whenever Obsidian's reading view drops it
+      // (which happens routinely while scrolling), and re-running a
+      // whole-vault scan on each re-insert would pile up on large vaults.
+      lazyLoad: async (isCancelled) => {
+        const cached = this.unlinkedCache.get(file.path);
+        if (cached && cached.rev === this.vaultRev) return cached.groups;
+        const rev = this.vaultRev;
+        const groups = await this.collectUnlinkedReferences(
+          file,
+          linkedRanges,
+          isCancelled
+        );
+        if (groups) this.unlinkedCache.set(file.path, { rev, groups });
+        return groups;
+      },
       collapsed: state.unlinkedCollapsed,
       setCollapsed: (c) => state.unlinkedCollapsed = c,
       highlight: file.basename
@@ -290,7 +316,8 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     const ensureLoaded = async () => {
       if (loaded) return;
       loaded = true;
-      const groups = await opts.lazyLoad();
+      const groups = await opts.lazyLoad(() => !body.isConnected);
+      if (!groups || !body.isConnected) return;
       if (groups.length === 0) {
         body.createDiv({
           cls: "logseq-backlinks-empty",
@@ -556,7 +583,7 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     }
     return this.sortGroups(groups);
   }
-  async collectUnlinkedReferences(target, linkedRanges) {
+  async collectUnlinkedReferences(target, linkedRanges, isCancelled) {
     const name = target.basename;
     if (name.length < 2) return [];
     const re = new RegExp(
@@ -571,6 +598,7 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
       if (groups.length >= 50) break;
       if (++scanned % 250 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0));
+        if (isCancelled()) return null;
       }
       const content = await this.app.vault.cachedRead(source);
       if (!re.test(content)) continue;

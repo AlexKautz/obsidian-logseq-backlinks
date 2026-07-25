@@ -145,7 +145,11 @@ deno run --node-modules-dir=none -A npm:esbuild@0.25.0 src/main.ts --bundle --ex
 - Unlinked references are the only whole-vault scan, so they are computed
   **lazily** — only when the section is expanded, never on ordinary renders —
   and the scan yields to the UI every 250 files, so very large vaults stay
-  responsive. Results cap at 50 pages, 20 blocks per page.
+  responsive. Results cap at 50 pages, 20 blocks per page. Results are
+  **cached until the vault changes** (reading view routinely drops and
+  re-inserts the section while scrolling; re-inserts reuse the cache instead
+  of rescanning), and a scan whose section is torn down mid-flight cancels
+  itself instead of running to completion.
 - Linked references touch only the files that actually link to the note
   (via `metadataCache.resolvedLinks`), read through Obsidian's in-memory
   `cachedRead`.
