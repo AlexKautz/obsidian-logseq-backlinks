@@ -350,21 +350,25 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     state.editing = true;
     blockEl.addClass("is-editing");
     blockEl.empty();
+    let done = false;
+    const makeFinish = (getValue, cleanup) => async (save) => {
+      if (done) return;
+      done = true;
+      const value = getValue();
+      cleanup();
+      state.editing = false;
+      if (save && value !== block.markdown) {
+        await this.saveBlock(file, block, value);
+      }
+      void this.renderForView(view);
+    };
     const embedded = createEmbeddedEditor(this.app, blockEl, block.markdown);
     if (embedded) {
       state.component.register(() => embedded.destroy());
-      let done2 = false;
-      const finish2 = async (save) => {
-        if (done2) return;
-        done2 = true;
-        const value = embedded.value;
-        embedded.destroy();
-        state.editing = false;
-        if (save && value !== block.markdown) {
-          await this.saveBlock(file, block, value);
-        }
-        void this.renderForView(view);
-      };
+      const finish2 = makeFinish(
+        () => embedded.value,
+        () => embedded.destroy()
+      );
       blockEl.addEventListener("focusout", (evt) => {
         const to = evt.relatedTarget;
         if (!(to instanceof Node) || !blockEl.contains(to)) {
@@ -401,17 +405,8 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     });
-    let done = false;
-    const finish = async (save) => {
-      if (done) return;
-      done = true;
-      const value = ta.value;
-      state.editing = false;
-      if (save && value !== block.markdown) {
-        await this.saveBlock(file, block, value);
-      }
-      void this.renderForView(view);
-    };
+    const finish = makeFinish(() => ta.value, () => {
+    });
     ta.addEventListener("blur", () => void finish(true));
     ta.addEventListener("keydown", (evt) => {
       if (evt.key === "Escape") {

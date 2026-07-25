@@ -383,21 +383,30 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		blockEl.addClass("is-editing");
 		blockEl.empty();
 
-		const embedded = createEmbeddedEditor(this.app, blockEl, block.markdown);
-		if (embedded) {
-			state.component.register(() => embedded.destroy());
-			let done = false;
-			const finish = async (save: boolean) => {
+		// Shared teardown for both editor flavors: capture the value, tear the
+		// editor down, save if changed, re-render.
+		let done = false;
+		const makeFinish =
+			(getValue: () => string, cleanup: () => void) =>
+			async (save: boolean) => {
 				if (done) return;
 				done = true;
-				const value = embedded.value;
-				embedded.destroy();
+				const value = getValue();
+				cleanup();
 				state.editing = false;
 				if (save && value !== block.markdown) {
 					await this.saveBlock(file, block, value);
 				}
 				void this.renderForView(view);
 			};
+
+		const embedded = createEmbeddedEditor(this.app, blockEl, block.markdown);
+		if (embedded) {
+			state.component.register(() => embedded.destroy());
+			const finish = makeFinish(
+				() => embedded.value,
+				() => embedded.destroy()
+			);
 			blockEl.addEventListener("focusout", (evt) => {
 				const to = evt.relatedTarget;
 				if (!(to instanceof Node) || !blockEl.contains(to)) {
@@ -437,17 +446,7 @@ export default class LogseqBacklinksPlugin extends Plugin {
 			ta.setSelectionRange(ta.value.length, ta.value.length);
 		});
 
-		let done = false;
-		const finish = async (save: boolean) => {
-			if (done) return;
-			done = true;
-			const value = ta.value;
-			state.editing = false;
-			if (save && value !== block.markdown) {
-				await this.saveBlock(file, block, value);
-			}
-			void this.renderForView(view);
-		};
+		const finish = makeFinish(() => ta.value, () => {});
 
 		ta.addEventListener("blur", () => void finish(true));
 		ta.addEventListener("keydown", (evt) => {
