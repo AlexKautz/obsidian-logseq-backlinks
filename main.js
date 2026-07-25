@@ -213,7 +213,8 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
         component: new import_obsidian.Component(),
         unlinkedCollapsed: true,
         linkedCollapsed: false,
-        editing: false
+        editing: false,
+        lastFingerprint: null
       };
       this.viewStates.set(view, state);
     }
@@ -241,6 +242,13 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     if (view.file?.path !== file.path || state.editing) return;
     const sizer = view.getMode() === "preview" ? view.containerEl.querySelector(".markdown-preview-sizer") : view.containerEl.querySelector(".cm-sizer");
     if (!sizer || !sizer.isConnected) return;
+    const fingerprint = view.getMode() + "\0" + linked.map(
+      (g) => g.file.path + "" + g.blocks.map((b) => `${b.startLine}:${b.rawText}`).join("")
+    ).join("");
+    if (state.lastFingerprint === fingerprint && sizer.querySelector(":scope > .logseq-backlinks")) {
+      return;
+    }
+    state.lastFingerprint = fingerprint;
     state.component.unload();
     state.component = new import_obsidian.Component();
     state.component.load();
@@ -364,6 +372,7 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
   beginEdit(view, state, blockEl, file, block) {
     if (state.editing || !blockEl.isConnected) return;
     state.editing = true;
+    state.lastFingerprint = null;
     blockEl.addClass("is-editing");
     blockEl.empty();
     const scope = new import_obsidian.Scope(this.app.scope);
@@ -559,7 +568,10 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     let scanned = 0;
     for (const source of files) {
       if (source.path === target.path) continue;
-      if (++scanned > 2e3 || groups.length >= 50) break;
+      if (groups.length >= 50) break;
+      if (++scanned % 250 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
       const content = await this.app.vault.cachedRead(source);
       if (!re.test(content)) continue;
       const cache = this.app.metadataCache.getFileCache(source);

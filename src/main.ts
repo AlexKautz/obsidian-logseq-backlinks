@@ -40,6 +40,11 @@ interface ViewState {
 	linkedCollapsed: boolean;
 	/** True while a block is being edited inline; suspends re-renders */
 	editing: boolean;
+	/**
+	 * Content signature of the last render; when an event fires but the
+	 * references are unchanged, the rebuild is skipped entirely.
+	 */
+	lastFingerprint: string | null;
 }
 
 type JumpGesture = "shift" | "mod" | "alt" | "mod-shift" | "none";
@@ -188,6 +193,7 @@ export default class LogseqBacklinksPlugin extends Plugin {
 				unlinkedCollapsed: true,
 				linkedCollapsed: false,
 				editing: false,
+				lastFingerprint: null,
 			};
 			this.viewStates.set(view, state);
 		}
@@ -231,6 +237,33 @@ export default class LogseqBacklinksPlugin extends Plugin {
 				? view.containerEl.querySelector(".markdown-preview-sizer")
 				: view.containerEl.querySelector(".cm-sizer");
 		if (!sizer || !sizer.isConnected) return;
+
+		// Skip the rebuild when nothing changed: re-rendering runs
+		// MarkdownRenderer on every block, and re-triggers the unlinked scan
+		// when that section is expanded, so unrelated vault events (a
+		// keystroke in another pane, a layout change) would redo all of that
+		// work for an identical result. Positions are part of the signature —
+		// if a block's lines shift, we rebuild so saves target the right ones.
+		const fingerprint =
+			view.getMode() +
+			"\u0000" +
+			linked
+				.map(
+					(g) =>
+						g.file.path +
+						"\u0001" +
+						g.blocks
+							.map((b) => `${b.startLine}:${b.rawText}`)
+							.join("\u0001")
+				)
+				.join("\u0002");
+		if (
+			state.lastFingerprint === fingerprint &&
+			sizer.querySelector(":scope > .logseq-backlinks")
+		) {
+			return;
+		}
+		state.lastFingerprint = fingerprint;
 
 		state.component.unload();
 		state.component = new Component();
@@ -408,6 +441,9 @@ export default class LogseqBacklinksPlugin extends Plugin {
 	) {
 		if (state.editing || !blockEl.isConnected) return;
 		state.editing = true;
+		// The editor replaces the rendered block, so the next render must
+		// rebuild even if the collected references come back identical.
+		state.lastFingerprint = null;
 		blockEl.addClass("is-editing");
 		blockEl.empty();
 
@@ -635,7 +671,12 @@ export default class LogseqBacklinksPlugin extends Plugin {
 
 		for (const source of files) {
 			if (source.path === target.path) continue;
-			if (++scanned > 2000 || groups.length >= 50) break;
+			if (groups.length >= 50) break;
+			// The scan covers the whole vault; yield to the UI periodically so
+			// a very large vault never blocks the main thread for long.
+			if (++scanned % 250 === 0) {
+				await new Promise<void>((resolve) => setTimeout(resolve, 0));
+			}
 			const content = await this.app.vault.cachedRead(source);
 			if (!re.test(content)) continue;
 

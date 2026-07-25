@@ -137,8 +137,15 @@ deno run --node-modules-dir=none -A npm:esbuild@0.25.0 src/main.ts --bundle --ex
 
 ## Performance notes
 
+- Re-renders are **skipped entirely when nothing changed**: each render
+  fingerprints the collected references (paths, positions, raw text), and
+  events that produce an identical result — a keystroke in an unrelated
+  pane, a layout change — never touch the DOM, re-run `MarkdownRenderer`,
+  or re-trigger the unlinked scan.
 - Unlinked references are the only whole-vault scan, so they are computed
-  **lazily** — only when the section is expanded, never on ordinary renders.
+  **lazily** — only when the section is expanded, never on ordinary renders —
+  and the scan yields to the UI every 250 files, so very large vaults stay
+  responsive. Results cap at 50 pages, 20 blocks per page.
 - Linked references touch only the files that actually link to the note
   (via `metadataCache.resolvedLinks`), read through Obsidian's in-memory
   `cachedRead`.
