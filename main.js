@@ -92,7 +92,20 @@ function createEmbeddedEditor(app, container, initialValue) {
 
 // src/main.ts
 var DEFAULT_SETTINGS = {
-  jumpGesture: "shift"
+  jumpGesture: "shift",
+  saveShortcut: "mod-enter"
+};
+var SAVE_SHORTCUT_LABELS = {
+  "mod-enter": "Cmd/Ctrl + Enter",
+  "mod-s": "Cmd/Ctrl + S",
+  "shift-enter": "Shift + Enter",
+  none: "None (click away to save)"
+};
+var SAVE_SHORTCUT_KEYS = {
+  "mod-enter": { modifiers: ["Mod"], key: "Enter" },
+  "mod-s": { modifiers: ["Mod"], key: "S" },
+  "shift-enter": { modifiers: ["Shift"], key: "Enter" },
+  none: null
 };
 var JUMP_GESTURE_LABELS = {
   shift: "Shift + click",
@@ -350,17 +363,40 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     state.editing = true;
     blockEl.addClass("is-editing");
     blockEl.empty();
+    const scope = new import_obsidian.Scope(this.app.scope);
+    this.app.keymap.pushScope(scope);
+    let popped = false;
+    const popScope = () => {
+      if (popped) return;
+      popped = true;
+      this.app.keymap.popScope(scope);
+    };
+    state.component.register(popScope);
     let done = false;
     const makeFinish = (getValue, cleanup) => async (save) => {
       if (done) return;
       done = true;
       const value = getValue();
+      popScope();
       cleanup();
       state.editing = false;
       if (save && value !== block.markdown) {
         await this.saveBlock(file, block, value);
       }
       void this.renderForView(view);
+    };
+    const bindKeys = (finish2) => {
+      scope.register([], "Escape", () => {
+        void finish2(false);
+        return false;
+      });
+      const shortcut = SAVE_SHORTCUT_KEYS[this.settings.saveShortcut];
+      if (shortcut) {
+        scope.register(shortcut.modifiers, shortcut.key, () => {
+          void finish2(true);
+          return false;
+        });
+      }
     };
     const embedded = createEmbeddedEditor(this.app, blockEl, block.markdown);
     if (embedded) {
@@ -369,25 +405,13 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
         () => embedded.value,
         () => embedded.destroy()
       );
+      bindKeys(finish2);
       blockEl.addEventListener("focusout", (evt) => {
         const to = evt.relatedTarget;
         if (!(to instanceof Node) || !blockEl.contains(to)) {
           void finish2(true);
         }
       });
-      blockEl.addEventListener(
-        "keydown",
-        (evt) => {
-          if (evt.key === "Escape") {
-            evt.stopPropagation();
-            void finish2(false);
-          } else if (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey)) {
-            evt.preventDefault();
-            void finish2(true);
-          }
-        },
-        { capture: true }
-      );
       window.requestAnimationFrame(() => embedded.focus());
       return;
     }
@@ -407,16 +431,8 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     });
     const finish = makeFinish(() => ta.value, () => {
     });
+    bindKeys(finish);
     ta.addEventListener("blur", () => void finish(true));
-    ta.addEventListener("keydown", (evt) => {
-      if (evt.key === "Escape") {
-        evt.preventDefault();
-        void finish(false);
-      } else if (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey)) {
-        evt.preventDefault();
-        void finish(true);
-      }
-    });
   }
   async saveBlock(file, block, newMarkdown) {
     await this.app.vault.process(file, (data) => {
@@ -648,6 +664,17 @@ var LogseqBacklinksSettingTab = class extends import_obsidian.PluginSettingTab {
   }
   display() {
     this.containerEl.empty();
+    new import_obsidian.Setting(this.containerEl).setName("Save shortcut").setDesc(
+      "Keyboard shortcut that saves an inline block edit back to the source note. Clicking away always saves; Esc always cancels."
+    ).addDropdown((dropdown) => {
+      for (const [value, label] of Object.entries(SAVE_SHORTCUT_LABELS)) {
+        dropdown.addOption(value, label);
+      }
+      dropdown.setValue(this.plugin.settings.saveShortcut).onChange(async (value) => {
+        this.plugin.settings.saveShortcut = value;
+        await this.plugin.saveData(this.plugin.settings);
+      });
+    });
     new import_obsidian.Setting(this.containerEl).setName("Jump to source").setDesc(
       "Click gesture that opens a reference block in its source note. A plain click always edits the block in place, like Logseq."
     ).addDropdown((dropdown) => {

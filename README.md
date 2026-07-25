@@ -8,6 +8,12 @@ Pairs with the [Logseqish theme](https://github.com/AlexKautz/obsidian-logseqish
 which styles these reference sections to match Logseq exactly — but this plugin
 works with any theme.
 
+Also recommended: the
+[Obsidian Outliner](https://github.com/vslinko/obsidian-outliner) plugin, which
+completes the Logseq feel with structured list editing (Tab/Shift+Tab
+indent and outdent, smart Enter, drag-and-drop). Verified compatible — its
+list behaviors even work *inside* this plugin's inline block editors.
+
 ## Features
 
 - **Linked References** section at the bottom of every note, in both reading
@@ -27,8 +33,10 @@ works with any theme.
   - **click a block to edit it in place**, right in the references panel,
     in a real **Live Preview editor** — the same partial rendering you get
     in a normal pane (links and math render, raw syntax appears on the
-    cursor line). Blur (or `Cmd+Enter`) saves back to the source note,
-    `Esc` cancels, and if the source changed in the meantime the save is
+    cursor line). Clicking away saves back to the source note, as does a
+    configurable save shortcut (`Cmd+Enter` by default; `Cmd+S` and
+    `Shift+Enter` available in Settings → Logseq-Style Backlinks), `Esc`
+    cancels, and if the source changed in the meantime the save is
     refused instead of clobbering it. (The editor widget is resolved from
     Obsidian's internal embed registry — the Canvas-card pattern; if that
     private API ever changes, editing falls back to a plain text area.);

@@ -4,9 +4,11 @@ import {
 	Keymap,
 	MarkdownRenderer,
 	MarkdownView,
+	Modifier,
 	Notice,
 	Plugin,
 	PluginSettingTab,
+	Scope,
 	Setting,
 	TFile,
 	debounce,
@@ -41,14 +43,35 @@ interface ViewState {
 }
 
 type JumpGesture = "shift" | "mod" | "alt" | "mod-shift" | "none";
+type SaveShortcut = "mod-enter" | "mod-s" | "shift-enter" | "none";
 
 interface LogseqBacklinksSettings {
 	/** Click gesture that jumps to a block's source note (plain click edits). */
 	jumpGesture: JumpGesture;
+	/** Keyboard shortcut that saves an inline edit (blur always saves). */
+	saveShortcut: SaveShortcut;
 }
 
 const DEFAULT_SETTINGS: LogseqBacklinksSettings = {
 	jumpGesture: "shift",
+	saveShortcut: "mod-enter",
+};
+
+const SAVE_SHORTCUT_LABELS: Record<SaveShortcut, string> = {
+	"mod-enter": "Cmd/Ctrl + Enter",
+	"mod-s": "Cmd/Ctrl + S",
+	"shift-enter": "Shift + Enter",
+	none: "None (click away to save)",
+};
+
+const SAVE_SHORTCUT_KEYS: Record<
+	SaveShortcut,
+	{ modifiers: Modifier[]; key: string } | null
+> = {
+	"mod-enter": { modifiers: ["Mod"], key: "Enter" },
+	"mod-s": { modifiers: ["Mod"], key: "S" },
+	"shift-enter": { modifiers: ["Shift"], key: "Enter" },
+	none: null,
 };
 
 const JUMP_GESTURE_LABELS: Record<JumpGesture, string> = {
@@ -383,6 +406,21 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		blockEl.addClass("is-editing");
 		blockEl.empty();
 
+		// Keys are handled through a pushed keymap Scope — the mechanism modals
+		// use. A DOM listener is the wrong layer here: Obsidian's window-level
+		// hotkey handler consumes Mod+Enter during the capture phase, before
+		// the event ever reaches the editor. A pushed Scope is consulted by
+		// that same handler, so it wins regardless of DOM position.
+		const scope = new Scope(this.app.scope);
+		this.app.keymap.pushScope(scope);
+		let popped = false;
+		const popScope = () => {
+			if (popped) return;
+			popped = true;
+			this.app.keymap.popScope(scope);
+		};
+		state.component.register(popScope);
+
 		// Shared teardown for both editor flavors: capture the value, tear the
 		// editor down, save if changed, re-render.
 		let done = false;
@@ -392,6 +430,7 @@ export default class LogseqBacklinksPlugin extends Plugin {
 				if (done) return;
 				done = true;
 				const value = getValue();
+				popScope();
 				cleanup();
 				state.editing = false;
 				if (save && value !== block.markdown) {
@@ -399,6 +438,19 @@ export default class LogseqBacklinksPlugin extends Plugin {
 				}
 				void this.renderForView(view);
 			};
+		const bindKeys = (finish: (save: boolean) => Promise<void>) => {
+			scope.register([], "Escape", () => {
+				void finish(false);
+				return false;
+			});
+			const shortcut = SAVE_SHORTCUT_KEYS[this.settings.saveShortcut];
+			if (shortcut) {
+				scope.register(shortcut.modifiers, shortcut.key, () => {
+					void finish(true);
+					return false;
+				});
+			}
+		};
 
 		const embedded = createEmbeddedEditor(this.app, blockEl, block.markdown);
 		if (embedded) {
@@ -407,25 +459,13 @@ export default class LogseqBacklinksPlugin extends Plugin {
 				() => embedded.value,
 				() => embedded.destroy()
 			);
+			bindKeys(finish);
 			blockEl.addEventListener("focusout", (evt) => {
 				const to = evt.relatedTarget;
 				if (!(to instanceof Node) || !blockEl.contains(to)) {
 					void finish(true);
 				}
 			});
-			blockEl.addEventListener(
-				"keydown",
-				(evt) => {
-					if (evt.key === "Escape") {
-						evt.stopPropagation();
-						void finish(false);
-					} else if (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey)) {
-						evt.preventDefault();
-						void finish(true);
-					}
-				},
-				{ capture: true }
-			);
 			window.requestAnimationFrame(() => embedded.focus());
 			return;
 		}
@@ -447,17 +487,8 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		});
 
 		const finish = makeFinish(() => ta.value, () => {});
-
+		bindKeys(finish);
 		ta.addEventListener("blur", () => void finish(true));
-		ta.addEventListener("keydown", (evt) => {
-			if (evt.key === "Escape") {
-				evt.preventDefault();
-				void finish(false);
-			} else if (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey)) {
-				evt.preventDefault();
-				void finish(true);
-			}
-		});
 	}
 
 	private async saveBlock(file: TFile, block: RefBlock, newMarkdown: string) {
@@ -724,6 +755,24 @@ class LogseqBacklinksSettingTab extends PluginSettingTab {
 
 	display(): void {
 		this.containerEl.empty();
+
+		new Setting(this.containerEl)
+			.setName("Save shortcut")
+			.setDesc(
+				"Keyboard shortcut that saves an inline block edit back to the " +
+					"source note. Clicking away always saves; Esc always cancels."
+			)
+			.addDropdown((dropdown) => {
+				for (const [value, label] of Object.entries(SAVE_SHORTCUT_LABELS)) {
+					dropdown.addOption(value, label);
+				}
+				dropdown
+					.setValue(this.plugin.settings.saveShortcut)
+					.onChange(async (value) => {
+						this.plugin.settings.saveShortcut = value as SaveShortcut;
+						await this.plugin.saveData(this.plugin.settings);
+					});
+			});
 
 		new Setting(this.containerEl)
 			.setName("Jump to source")
