@@ -1,0 +1,210 @@
+/* Logseq-Style Backlinks */
+
+/* Obsidian pads the bottom of the editor so you can scroll past the end;
+   when references are shown, pull them up flush under the note body,
+   the way Logseq does. */
+.cm-sizer:has(> .logseq-backlinks:not(:empty)) > .cm-contentContainer .cm-content {
+	padding-bottom: 1em !important;
+}
+
+/* The editor content container normally flex-grows to fill the pane;
+   let the references sit right below the last line instead. */
+.cm-sizer:has(> .logseq-backlinks:not(:empty)) > .cm-contentContainer {
+	flex-grow: 0;
+}
+
+.markdown-preview-sizer:has(> .logseq-backlinks:not(:empty)) {
+	padding-bottom: 1em !important;
+	min-height: unset !important;
+}
+
+.logseq-backlinks {
+	margin-top: 4em;
+	padding-bottom: 3em;
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+	font-family: var(--font-text);
+}
+
+/* In live preview the sizer is a flex-ish editor surface; make sure we take
+   the full readable width and normal text behavior. */
+.cm-sizer > .logseq-backlinks {
+	cursor: default;
+	user-select: text;
+}
+
+.logseq-backlinks-section + .logseq-backlinks-section {
+	margin-top: 2em;
+}
+
+/* ---- Section heading: "3 Linked References" ---- */
+
+.logseq-backlinks-heading {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	font-weight: 600;
+	color: var(--text-normal);
+	cursor: var(--cursor);
+	user-select: none;
+}
+
+.logseq-backlinks-caret {
+	display: flex;
+	align-items: center;
+	color: var(--text-faint);
+	transition: transform 100ms ease-in-out;
+}
+
+.logseq-backlinks-caret .svg-icon {
+	width: 16px;
+	height: 16px;
+}
+
+.logseq-backlinks-section.is-collapsed .logseq-backlinks-caret {
+	transform: rotate(-90deg);
+}
+
+.logseq-backlinks-body.is-hidden {
+	display: none;
+}
+
+/* ---- Reference cards, one per source page ---- */
+
+.logseq-backlinks-card {
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+	padding: 14px 18px;
+	margin-top: 14px;
+}
+
+.logseq-backlinks-page {
+	display: inline-block;
+	color: var(--text-accent);
+	font-weight: 500;
+	margin-bottom: 6px;
+	cursor: var(--cursor-link);
+}
+
+.logseq-backlinks-page:hover {
+	text-decoration: underline;
+}
+
+/* ---- Blocks: rendered markdown at body size ---- */
+
+.logseq-backlinks-block {
+	position: relative;
+	border-radius: 4px;
+	padding: 1px 6px;
+	cursor: var(--cursor);
+}
+
+.logseq-backlinks-block:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.logseq-backlinks-block.markdown-rendered {
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+}
+
+.logseq-backlinks-block.markdown-rendered p,
+.logseq-backlinks-block.markdown-rendered ul,
+.logseq-backlinks-block.markdown-rendered ol {
+	margin: 0;
+}
+
+.logseq-backlinks-block.markdown-rendered ul {
+	padding-inline-start: 1.35em;
+}
+
+.logseq-backlinks-block.markdown-rendered li::marker {
+	color: var(--text-faint);
+}
+
+.logseq-backlinks-block.markdown-rendered ul ul,
+.logseq-backlinks-block.markdown-rendered ul ol {
+	margin-top: 2px;
+}
+
+.logseq-backlinks-block + .logseq-backlinks-block {
+	margin-top: 6px;
+}
+
+/* Non-bullet blocks (paragraphs, headings) render as-is; keep headings at
+   body scale so a reference card never shouts. */
+.logseq-backlinks-block.markdown-rendered :is(h1, h2, h3, h4, h5, h6) {
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+	margin: 0;
+}
+
+/* ---- Inline editing (click a block, like Logseq) ---- */
+
+.logseq-backlinks-block.is-editing {
+	background-color: var(--background-primary);
+	box-shadow: inset 0 0 0 1px var(--background-modifier-border);
+	cursor: text;
+}
+
+.logseq-backlinks-editor {
+	display: block;
+	width: 100%;
+	padding: 0;
+	margin: 0;
+	border: none;
+	background: transparent;
+	resize: none;
+	overflow: hidden;
+	outline: none;
+	box-shadow: none;
+	color: var(--text-normal);
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+}
+
+.logseq-backlinks-editor:focus,
+.logseq-backlinks-editor:active {
+	border: none;
+	box-shadow: none;
+	outline: none;
+}
+
+/* Embedded live-preview editor: strip chrome so it sits in the card like
+   the rendered block it replaces. */
+.logseq-backlinks-block.is-editing .markdown-source-view,
+.logseq-backlinks-block.is-editing .cm-editor {
+	background: transparent;
+}
+
+.logseq-backlinks-block.is-editing .cm-editor .cm-content {
+	padding: 0;
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+}
+
+.logseq-backlinks-block.is-editing .cm-editor .cm-scroller {
+	padding: 0;
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+}
+
+.logseq-backlinks-block.is-editing .cm-editor .cm-line {
+	padding-left: 0;
+	padding-right: 0;
+}
+
+.logseq-backlinks-empty {
+	color: var(--text-faint);
+	margin-top: 10px;
+}
+
+.logseq-backlinks-block mark {
+	background-color: var(--text-highlight-bg);
+	color: inherit;
+	border-radius: 2px;
+	padding: 0 1px;
+}
