@@ -255,10 +255,13 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
       setCollapsed: (c) => state.linkedCollapsed = c,
       highlight: null
     });
-    const linkedPaths = new Set(linked.map((g) => g.file.path));
+    const linkedRanges = /* @__PURE__ */ new Map();
+    for (const g of linked) {
+      linkedRanges.set(g.file.path, g.blocks.map((b) => [b.startLine, b.endLine]));
+    }
     this.renderSection(root, view, state, {
       title: "Unlinked References",
-      lazyLoad: () => this.collectUnlinkedReferences(file, linkedPaths),
+      lazyLoad: () => this.collectUnlinkedReferences(file, linkedRanges),
       collapsed: state.unlinkedCollapsed,
       setCollapsed: (c) => state.unlinkedCollapsed = c,
       highlight: file.basename
@@ -544,7 +547,7 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     }
     return this.sortGroups(groups);
   }
-  async collectUnlinkedReferences(target, linkedPaths) {
+  async collectUnlinkedReferences(target, linkedRanges) {
     const name = target.basename;
     if (name.length < 2) return [];
     const re = new RegExp(
@@ -555,17 +558,20 @@ var LogseqBacklinksPlugin = class extends import_obsidian.Plugin {
     const files = this.app.vault.getMarkdownFiles();
     let scanned = 0;
     for (const source of files) {
-      if (source.path === target.path || linkedPaths.has(source.path)) continue;
+      if (source.path === target.path) continue;
       if (++scanned > 2e3 || groups.length >= 50) break;
       const content = await this.app.vault.cachedRead(source);
       if (!re.test(content)) continue;
       const cache = this.app.metadataCache.getFileCache(source);
       if (!cache) continue;
+      const covered = linkedRanges.get(source.path) ?? [];
       const lines = content.split("\n");
       const seen = /* @__PURE__ */ new Map();
       for (let i = 0; i < lines.length; i++) {
         if (!re.test(lines[i])) continue;
         const range = this.blockRangeForLine(cache, i);
+        if (covered.some(([s, e]) => s <= range.start && range.end <= e))
+          continue;
         const key = `${range.start}-${range.end}`;
         if (seen.has(key)) continue;
         seen.set(key, this.extractBlock(lines, range.start, range.end));

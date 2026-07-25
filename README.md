@@ -52,6 +52,9 @@ list behaviors even work *inside* this plugin's inline block editors.
   is the parent, and the whole thing is one block in the references panel.
 - Collapsible **Unlinked References** section (collapsed by default, like
   Logseq) that finds plain-text mentions of the note name and highlights them.
+  Exclusion is per block, like Logseq: a note that links in one block and
+  plainly mentions the name in another appears in both sections, and content
+  already shown as a linked reference is never duplicated.
 - Journals sort first (newest first), then other pages alphabetically.
 - Live updates: edit a note in one pane and the references under the target
   note update.

@@ -256,11 +256,16 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		});
 
 		// Unlinked references scan the whole vault, so they are only computed
-		// when the section is actually expanded.
-		const linkedPaths = new Set(linked.map((g) => g.file.path));
+		// when the section is actually expanded. Exclusion is per block, like
+		// Logseq: a note that links in one block can still surface a plain
+		// mention from another block.
+		const linkedRanges = new Map<string, Array<[number, number]>>();
+		for (const g of linked) {
+			linkedRanges.set(g.file.path, g.blocks.map((b) => [b.startLine, b.endLine]));
+		}
 		this.renderSection(root, view, state, {
 			title: "Unlinked References",
-			lazyLoad: () => this.collectUnlinkedReferences(file, linkedPaths),
+			lazyLoad: () => this.collectUnlinkedReferences(file, linkedRanges),
 			collapsed: state.unlinkedCollapsed,
 			setCollapsed: (c) => (state.unlinkedCollapsed = c),
 			highlight: file.basename,
@@ -616,7 +621,7 @@ export default class LogseqBacklinksPlugin extends Plugin {
 
 	private async collectUnlinkedReferences(
 		target: TFile,
-		linkedPaths: Set<string>
+		linkedRanges: Map<string, Array<[number, number]>>
 	): Promise<RefGroup[]> {
 		const name = target.basename;
 		if (name.length < 2) return [];
@@ -629,18 +634,24 @@ export default class LogseqBacklinksPlugin extends Plugin {
 		let scanned = 0;
 
 		for (const source of files) {
-			if (source.path === target.path || linkedPaths.has(source.path)) continue;
+			if (source.path === target.path) continue;
 			if (++scanned > 2000 || groups.length >= 50) break;
 			const content = await this.app.vault.cachedRead(source);
 			if (!re.test(content)) continue;
 
 			const cache = this.app.metadataCache.getFileCache(source);
 			if (!cache) continue;
+			const covered = linkedRanges.get(source.path) ?? [];
 			const lines = content.split("\n");
 			const seen = new Map<string, RefBlock>();
 			for (let i = 0; i < lines.length; i++) {
 				if (!re.test(lines[i])) continue;
 				const range = this.blockRangeForLine(cache, i);
+				// Content already shown under Linked References — the same
+				// block, or a sub-bullet of a linked block — is not an
+				// unlinked mention.
+				if (covered.some(([s, e]) => s <= range.start && range.end <= e))
+					continue;
 				const key = `${range.start}-${range.end}`;
 				if (seen.has(key)) continue;
 				seen.set(key, this.extractBlock(lines, range.start, range.end));
